@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>表格抽取工具</title>
+    <style>
+      :root {
+        --bg: #f6f8ff;
+        --card: rgba(255, 255, 255, 0.92);
+        --text: #111827;
+        --muted: #5b647a;
+        --accent: #375dfb;
+        --danger: #d92d20;
+        --ok: #027a48;
+        --border: rgba(17, 24, 39, 0.14);
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans",
+          sans-serif;
+        background: radial-gradient(1100px 700px at 0% -10%, rgba(55, 93, 251, 0.18), transparent 55%),
+          radial-gradient(900px 650px at 100% 0%, rgba(2, 122, 72, 0.1), transparent 60%),
+          var(--bg);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 0 16px;
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        letter-spacing: 0.5px;
+      }
+      header p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 18px 50px rgba(17, 24, 39, 0.14);
+        backdrop-filter: blur(8px);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      input,
+      select,
+      button,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 10px 10px;
+        border-radius: 10px;
+        outline: none;
+      }
+      textarea {
+        min-height: 44px;
+        resize: vertical;
+      }
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: rgba(55, 93, 251, 0.65);
+        box-shadow: 0 0 0 3px rgba(55, 93, 251, 0.16);
+      }
+      .row {
+        margin-bottom: 14px;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      button {
+        cursor: pointer;
+        font-weight: 600;
+        border: 1px solid rgba(55, 93, 251, 0.35);
+        background: linear-gradient(180deg, rgba(55, 93, 251, 0.95), rgba(55, 93, 251, 0.78));
+        color: #ffffff;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .status {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.75);
+        font-size: 13px;
+        color: var(--muted);
+        white-space: pre-wrap;
+      }
+      .status.error {
+        border-color: rgba(217, 45, 32, 0.35);
+        color: #7a1f1b;
+      }
+      .status.ok {
+        border-color: rgba(2, 122, 72, 0.35);
+        color: #065f46;
+      }
+      footer {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      @media (max-width: 720px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>表格抽取工具</h1>
+        <p>
+          上传表格类文件（目前对 <code>.DTA</code> 解析更强；其它文本表格自动按分隔符识别），输入要提取的列名与行范围，
+          导出为 Origin/Excel 可直接打开的 <code>csv</code> / <code>txt(dat)</code>。
+        </p>
+      </header>
+
+      <div class="card">
+        <form id="extractForm">
+          <div class="row">
+            <label for="files">选择文件（可多选，多个文件会打包成 zip）</label>
+            <input id="files" name="files" type="file" multiple required />
+          </div>
+
+          <div class="row">
+            <label for="columns">列名关键词（逗号/空格分隔，例如：Zreal,Zimag 或 Idc Vdc IERange Imod）</label>
+            <textarea id="columns" name="columns" placeholder="例如：Zreal,Zimag" required></textarea>
+          </div>
+
+          <div class="grid row">
+            <div>
+              <label for="out_fmt">导出格式</label>
+              <select id="out_fmt" name="out_fmt">
+                <option value="dat">dat（tab，Origin 友好）</option>
+                <option value="txt">txt（tab）</option>
+                <option value="tsv">tsv（tab）</option>
+                <option value="csv">csv（逗号）</option>
+              </select>
+            </div>
+            <div>
+              <label for="row_keyword">行关键词（可选：任意单元格包含则保留）</label>
+              <input id="row_keyword" name="row_keyword" placeholder="可留空" />
+            </div>
+          </div>
+
+          <div class="grid row">
+            <div>
+              <label for="start_row">start_row（数据行从 1 开始，不含表头）</label>
+              <input id="start_row" name="start_row" type="number" min="1" value="1" />
+            </div>
+            <div>
+              <label for="max_rows">max_rows（可选：只取前 N 行）</label>
+              <input id="max_rows" name="max_rows" type="number" min="1" placeholder="例如：70" />
+            </div>
+          </div>
+
+          <div class="grid row">
+            <div>
+              <label for="end_row">end_row（可选：结束行，包含该行）</label>
+              <input id="end_row" name="end_row" type="number" min="1" placeholder="可留空" />
+            </div>
+            <div class="hint">
+              <div>规则：若填写 <code>max_rows</code> 且未填 <code>end_row</code>，则自动计算 end_row。</div>
+              <div>对于 Gamry 的 <code>.DTA</code>，数据行通常从 <code>Pt=0</code> 开始，对应 start_row=1。</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="submitBtn" type="submit">开始抽取并下载</button>
+            <div class="hint" id="hint">本工具在本机运行，不会上传到外网。</div>
+          </div>
+        </form>
+
+        <div id="status" class="status" style="display: none"></div>
+      </div>
+
+      <footer>纯前端：浏览器本地解析；也可用 Python 脚本（<code>cli_extract.py</code>/<code>app.py</code>）。</footer>
+    </div>
+
+    <script>
+      const form = document.getElementById("extractForm");
+      const statusEl = document.getElementById("status");
+      const submitBtn = document.getElementById("submitBtn");
+
+      function setStatus(text, kind) {
+        statusEl.style.display = "block";
+        statusEl.classList.remove("error", "ok");
+        if (kind) statusEl.classList.add(kind);
+        statusEl.textContent = text;
+      }
+
+      function splitColumnsSpec(spec) {
+        if (!spec) return [];
+        const chunks = spec.split(/[,\n\r;，；]+/);
+        const out = [];
+        for (const c of chunks) {
+          const t = c.trim();
+          if (!t) continue;
+          for (const p of t.split(/\s+/)) {
+            const v = p.trim();
+            if (v) out.push(v);
+          }
+        }
+        return out;
+      }
+
+      function normalizeCol(name) {
+        return (name || "").trim().replace(/\s+/g, " ").toLowerCase();
+      }
+
+      function pickColumns(allColumns, requested) {
+        const map = new Map();
+        allColumns.forEach((c, i) => map.set(normalizeCol(c), i));
+
+        const picked = [];
+        for (const req of requested) {
+          const key = normalizeCol(req);
+          if (!key) continue;
+
+          if (map.has(key)) {
+            picked.push(map.get(key));
+            continue;
+          }
+
+          const matches = [];
+          for (let i = 0; i < allColumns.length; i++) {
+            if (normalizeCol(allColumns[i]).includes(key)) matches.push(i);
+          }
+          if (matches.length === 1) {
+            picked.push(matches[0]);
+            continue;
+          }
+          if (matches.length === 0) {
+            throw new Error(`找不到列: ${req}；可用列: ${allColumns.join(", ")}`);
+          }
+          throw new Error(`列名 ${req} 匹配到多个列：${matches.map((i) => allColumns[i]).join(", ")}；请更精确`);
+        }
+        if (picked.length === 0) throw new Error("未指定要提取的列");
+        return picked;
+      }
+
+      const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+      function parseDtaFirstTable(text) {
+        const lines = text.split(/\r?\n/);
+        let tableIdx = -1;
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes("\tTABLE")) {
+            tableIdx = i;
+            break;
+          }
+        }
+        if (tableIdx < 0) throw new Error("未找到 DTA 的 TABLE 区段（例如：ZCURVE\\tTABLE）");
+
+        let i = tableIdx + 1;
+        while (i < lines.length && !lines[i].trim()) i++;
+        if (i >= lines.length) throw new Error("TABLE 区段后缺少表头行");
+
+        const header = lines[i]
+          .split("\t")
+          .map((s) => s.trim())
+          .filter((s) => s);
+        if (!header.length) throw new Error("表头行为空");
+
+        const expected = header.length;
+        i += 2; // 跳过单位行
+
+        const rows = [];
+        while (i < lines.length) {
+          const raw = lines[i];
+          if (!raw.trim()) {
+            if (rows.length) break;
+            i++;
+            continue;
+          }
+
+          const parts = raw
+            .split("\t")
+            .map((s) => s.trim())
+            .filter((s) => s !== "");
+
+          if (parts.length < expected) break;
+          if (!NUM_RE.test(parts[0])) break;
+
+          rows.push(parts.slice(0, expected));
+          i++;
+        }
+
+        if (!rows.length) throw new Error("未解析到数据行");
+        return { columns: header, rows };
+      }
+
+      function sniffDelimiter(text) {
+        const sample = text.slice(0, 8192);
+        const candidates = [",", "\t", ";", "|"];
+        let best = "\t";
+        let bestScore = -1;
+
+        for (const d of candidates) {
+          const score = (sample.match(new RegExp(d === "\t" ? "\\t" : `\\${d}`, "g")) || []).length;
+          if (score > bestScore) {
+            bestScore = score;
+            best = d;
+          }
+        }
+        if (bestScore <= 0) return sample.includes("\t") ? "\t" : ",";
+        return best;
+      }
+
+      function parseDelimited(text, delimiter) {
+        const rows = [];
+        let row = [];
+        let field = "";
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+
+          if (inQuotes) {
+            if (ch === '"') {
+              const next = text[i + 1];
+              if (next === '"') {
+                field += '"';
+                i++;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              field += ch;
+            }
+            continue;
+          }
+
+          if (ch === '"') {
+            inQuotes = true;
+            continue;
+          }
+
+          if (ch === delimiter) {
+            row.push(field);
+            field = "";
+            continue;
+          }
+
+          if (ch === "\n") {
+            row.push(field);
+            field = "";
+            if (row.some((c) => String(c).trim())) rows.push(row);
+            row = [];
+            continue;
+          }
+
+          if (ch === "\r") {
+            continue;
+          }
+
+          field += ch;
+        }
+
+        row.push(field);
+        if (row.some((c) => String(c).trim())) rows.push(row);
+
+        if (!rows.length) throw new Error("文件为空或未识别到表格内容");
+        const columns = rows[0].map((c) => String(c).trim());
+        const dataRows = rows.slice(1).map((r) => r.map((c) => String(c).trim()));
+        if (!columns.length || !columns.some((c) => c)) throw new Error("未识别到表头行");
+        return { columns, rows: dataRows };
+      }
+
+      async function readFileAsText(file) {
+        const buf = await file.arrayBuffer();
+        const encodings = ["utf-8", "utf-8", "gb18030", "gbk"];
+
+        for (const enc of encodings) {
+          try {
+            const dec = new TextDecoder(enc, { fatal: true });
+            return dec.decode(buf);
+          } catch (_e) {
+            continue;
+          }
+        }
+        return new TextDecoder("utf-8", { fatal: false }).decode(buf);
+      }
+
+      function parseFileToTable(filename, text) {
+        const lower = (filename || "").toLowerCase();
+        if (lower.endsWith(".dta")) return parseDtaFirstTable(text);
+        const delimiter = sniffDelimiter(text);
+        return parseDelimited(text, delimiter);
+      }
+
+      function extractTable(table, columnsSpec, startRow, endRow, maxRows, rowKeyword) {
+        const requested = splitColumnsSpec(columnsSpec);
+        const pickedIdx = pickColumns(table.columns, requested);
+
+        let filtered = table.rows;
+        if (rowKeyword && rowKeyword.trim()) {
+          const kw = rowKeyword.trim().toLowerCase();
+          filtered = filtered.filter((r) => r.some((c) => String(c || "").toLowerCase().includes(kw)));
+        }
+
+        const start0 = Math.max(0, (startRow || 1) - 1);
+        let end = endRow;
+        if (!end && maxRows) end = (startRow || 1) + maxRows - 1;
+        const end0 = end ? Math.min(filtered.length, end) : filtered.length;
+        const sliced = filtered.slice(start0, end0);
+
+        const outCols = pickedIdx.map((i) => table.columns[i]);
+        const outRows = sliced.map((r) => pickedIdx.map((i) => (r[i] == null ? "" : String(r[i]))));
+        return { columns: outCols, rows: outRows };
+      }
+
+      function escapeCell(cell, delimiter) {
+        const s = String(cell ?? "");
+        if (s.includes('"') || s.includes("\n") || s.includes("\r") || s.includes(delimiter)) {
+          return `"${s.replace(/\"/g, '""')}"`;
+        }
+        return s;
+      }
+
+      function tableToText(table, outFmt) {
+        const fmt = (outFmt || "tsv").toLowerCase();
+        const delimiter = fmt === "csv" ? "," : "\t";
+        const lines = [];
+        lines.push(table.columns.map((c) => escapeCell(c, delimiter)).join(delimiter));
+        for (const row of table.rows) {
+          lines.push(row.map((c) => escapeCell(c, delimiter)).join(delimiter));
+        }
+        return "\ufeff" + lines.join("\n");
+      }
+
+      function outExt(outFmt) {
+        const fmt = (outFmt || "tsv").toLowerCase();
+        if (fmt === "csv") return ".csv";
+        if (fmt === "tsv") return ".tsv";
+        if (fmt === "txt") return ".txt";
+        return ".dat";
+      }
+
+      function outMime(outFmt) {
+        const fmt = (outFmt || "tsv").toLowerCase();
+        if (fmt === "csv") return "text/csv";
+        if (fmt === "tsv") return "text/tab-separated-values";
+        return "text/plain";
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function concatChunks(chunks) {
+        let total = 0;
+        for (const c of chunks) total += c.length;
+        const out = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) {
+          out.set(c, off);
+          off += c.length;
+        }
+        return out;
+      }
+
+      function u16le(v) {
+        const a = new Uint8Array(2);
+        a[0] = v & 255;
+        a[1] = (v >>> 8) & 255;
+        return a;
+      }
+
+      function u32le(v) {
+        const a = new Uint8Array(4);
+        a[0] = v & 255;
+        a[1] = (v >>> 8) & 255;
+        a[2] = (v >>> 16) & 255;
+        a[3] = (v >>> 24) & 255;
+        return a;
+      }
+
+      const CRC_TABLE = (() => {
+        const t = new Uint32Array(256);
+        for (let i = 0; i < 256; i++) {
+          let c = i;
+          for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          t[i] = c >>> 0;
+        }
+        return t;
+      })();
+
+      function crc32(bytes) {
+        let c = 0xffffffff;
+        for (let i = 0; i < bytes.length; i++) c = (c >>> 8) ^ CRC_TABLE[(c ^ bytes[i]) & 255];
+        return (c ^ 0xffffffff) >>> 0;
+      }
+
+      const textEncoder = new TextEncoder();
+
+      function makeZip(files) {
+        const localParts = [];
+        const centralParts = [];
+        const records = [];
+        let offset = 0;
+
+        for (const f of files) {
+          const nameBytes = textEncoder.encode(f.name);
+          const dataBytes = f.bytes;
+          const crc = crc32(dataBytes);
+          const size = dataBytes.length >>> 0;
+          const flags = 0x0800; // UTF-8 file name
+
+          const header = concatChunks([
+            u32le(0x04034b50),
+            u16le(20),
+            u16le(flags),
+            u16le(0),
+            u16le(0),
+            u16le(0),
+            u32le(crc),
+            u32le(size),
+            u32le(size),
+            u16le(nameBytes.length),
+            u16le(0),
+            nameBytes,
+          ]);
+
+          localParts.push(header, dataBytes);
+          records.push({ nameBytes, crc, size, flags, offset });
+          offset += header.length + dataBytes.length;
+        }
+
+        const centralStart = offset;
+        for (const r of records) {
+          const entry = concatChunks([
+            u32le(0x02014b50),
+            u16le(20),
+            u16le(20),
+            u16le(r.flags),
+            u16le(0),
+            u16le(0),
+            u16le(0),
+            u32le(r.crc),
+            u32le(r.size),
+            u32le(r.size),
+            u16le(r.nameBytes.length),
+            u16le(0),
+            u16le(0),
+            u16le(0),
+            u16le(0),
+            u32le(0),
+            u32le(r.offset),
+            r.nameBytes,
+          ]);
+          centralParts.push(entry);
+          offset += entry.length;
+        }
+
+        const centralSize = offset - centralStart;
+        const count = records.length;
+        const end = concatChunks([
+          u32le(0x06054b50),
+          u16le(0),
+          u16le(0),
+          u16le(count),
+          u16le(count),
+          u32le(centralSize),
+          u32le(centralStart),
+          u16le(0),
+        ]);
+
+        return concatChunks([...localParts, ...centralParts, end]);
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        setStatus("处理中（纯前端本地解析，不会上传到外网）…");
+
+        try {
+          const files = document.getElementById("files").files;
+          if (!files || files.length === 0) throw new Error("请先选择文件");
+
+          const columnsSpec = document.getElementById("columns").value || "";
+          const outFmt = document.getElementById("out_fmt").value || "tsv";
+          const rowKeyword = document.getElementById("row_keyword").value || "";
+          const startRow = parseInt(document.getElementById("start_row").value || "1", 10);
+          const maxRowsRaw = document.getElementById("max_rows").value || "";
+          const endRowRaw = document.getElementById("end_row").value || "";
+          const maxRows = maxRowsRaw.trim() ? parseInt(maxRowsRaw, 10) : null;
+          const endRow = endRowRaw.trim() ? parseInt(endRowRaw, 10) : null;
+
+          if (!columnsSpec.trim()) throw new Error("请填写要提取的列名关键词");
+          if (!Number.isFinite(startRow) || startRow < 1) throw new Error("start_row 必须 >= 1");
+
+          const outputs = [];
+          for (const file of files) {
+            const text = await readFileAsText(file);
+            const table = parseFileToTable(file.name, text);
+            const extracted = extractTable(table, columnsSpec, startRow, endRow, maxRows, rowKeyword);
+            const outText = tableToText(extracted, outFmt);
+            const outBytes = textEncoder.encode(outText);
+            const outName = `${file.name.replace(/\.[^.]+$/, "")}_extracted${outExt(outFmt)}`;
+            outputs.push({ name: outName, bytes: outBytes });
+          }
+
+          if (outputs.length === 1) {
+            const one = outputs[0];
+            const blob = new Blob([one.bytes], { type: outMime(outFmt) });
+            downloadBlob(blob, one.name);
+            setStatus(`完成：已下载 ${one.name}`, "ok");
+            return;
+          }
+
+          const zipBytes = makeZip(outputs);
+          downloadBlob(new Blob([zipBytes], { type: "application/zip" }), "extracted.zip");
+          setStatus(`完成：已下载 extracted.zip（共 ${outputs.length} 个文件）`, "ok");
+        } catch (err) {
+          setStatus(String(err && err.message ? err.message : err || "未知错误"), "error");
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
