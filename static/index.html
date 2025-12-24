@@ -75,6 +75,17 @@
         min-height: 44px;
         resize: vertical;
       }
+      input[type="checkbox"] {
+        width: auto;
+        padding: 0;
+      }
+      label.check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 0;
+        font-weight: 500;
+      }
       input:focus,
       select:focus,
       textarea:focus {
@@ -171,6 +182,13 @@
               <label for="row_keyword">行关键词（可选：任意单元格包含则保留）</label>
               <input id="row_keyword" name="row_keyword" placeholder="可留空" />
             </div>
+          </div>
+
+          <div class="row">
+            <label class="check" for="include_header">
+              <input id="include_header" name="include_header" type="checkbox" checked />
+              导出包含表头（列名行）
+            </label>
           </div>
 
           <div class="grid row">
@@ -448,11 +466,13 @@
         return s;
       }
 
-      function tableToText(table, outFmt) {
+      function tableToText(table, outFmt, includeHeader) {
         const fmt = (outFmt || "tsv").toLowerCase();
         const delimiter = fmt === "csv" ? "," : "\t";
         const lines = [];
-        lines.push(table.columns.map((c) => escapeCell(c, delimiter)).join(delimiter));
+        if (includeHeader) {
+          lines.push(table.columns.map((c) => escapeCell(c, delimiter)).join(delimiter));
+        }
         for (const row of table.rows) {
           lines.push(row.map((c) => escapeCell(c, delimiter)).join(delimiter));
         }
@@ -618,6 +638,7 @@
           const columnsSpec = document.getElementById("columns").value || "";
           const outFmt = document.getElementById("out_fmt").value || "tsv";
           const rowKeyword = document.getElementById("row_keyword").value || "";
+          const includeHeader = document.getElementById("include_header").checked;
           const startRow = parseInt(document.getElementById("start_row").value || "1", 10);
           const maxRowsRaw = document.getElementById("max_rows").value || "";
           const endRowRaw = document.getElementById("end_row").value || "";
@@ -632,7 +653,7 @@
             const text = await readFileAsText(file);
             const table = parseFileToTable(file.name, text);
             const extracted = extractTable(table, columnsSpec, startRow, endRow, maxRows, rowKeyword);
-            const outText = tableToText(extracted, outFmt);
+            const outText = tableToText(extracted, outFmt, includeHeader);
             const outBytes = textEncoder.encode(outText);
             const outName = `${file.name.replace(/\.[^.]+$/, "")}_extracted${outExt(outFmt)}`;
             outputs.push({ name: outName, bytes: outBytes });
