@@ -164,8 +164,8 @@
           </div>
 
           <div class="row">
-            <label for="columns">列名关键词（逗号/空格分隔，例如：Zreal,Zimag 或 Idc Vdc IERange Imod）</label>
-            <textarea id="columns" name="columns" placeholder="例如：Zreal,Zimag" required></textarea>
+            <label for="columns">列名关键词（可选；逗号/空格分隔，例如：Zreal,Zimag 或 Idc Vdc IERange Imod；留空导出全部列）</label>
+            <textarea id="columns" name="columns" placeholder="留空导出全部列；例如：Zreal,Zimag"></textarea>
           </div>
 
           <div class="grid row">
@@ -282,6 +282,8 @@
       }
 
       function pickColumns(allColumns, requested) {
+        if (!requested.length) return allColumns.map((_c, i) => i);
+
         const map = new Map();
         allColumns.forEach((c, i) => map.set(normalizeCol(c), i));
 
@@ -315,7 +317,6 @@
           }
           throw new Error(`列名 ${req} 匹配到多个列：${matches.map((i) => allColumns[i]).join(", ")}；请更精确`);
         }
-        if (picked.length === 0) throw new Error("未指定要提取的列");
         return picked;
       }
 
@@ -875,7 +876,6 @@
           const maxRows = maxRowsRaw.trim() ? parseInt(maxRowsRaw, 10) : null;
           const endRow = endRowRaw.trim() ? parseInt(endRowRaw, 10) : null;
 
-          if (!columnsSpec.trim()) throw new Error("请填写要提取的列名关键词");
           if (!Number.isFinite(startRow) || startRow < 1) throw new Error("start_row 必须 >= 1");
 
           const outputs = [];

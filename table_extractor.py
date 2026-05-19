@@ -69,6 +69,9 @@ def _candidate_column_names(requested: str) -> list[str]:
 
 
 def _pick_columns(all_columns: Sequence[str], requested: Sequence[str]) -> list[int]:
+    if not requested:
+        return list(range(len(all_columns)))
+
     norm_to_index: dict[str, int] = {_normalize_col(c): i for i, c in enumerate(all_columns)}
     picked: list[int] = []
 
@@ -96,8 +99,6 @@ def _pick_columns(all_columns: Sequence[str], requested: Sequence[str]) -> list[
                 f"列名 {req!r} 匹配到多个列: {', '.join(all_columns[i] for i in matches)}；请更精确"
             )
 
-    if not picked:
-        raise ValueError("未指定要提取的列")
     return picked
 
 
@@ -367,7 +368,7 @@ def extract_table(
     sliced = filtered[start0:end0_exclusive]
 
     new_columns = [table.columns[i] for i in picked_idx]
-    new_rows = [[row[i] for i in picked_idx] for row in sliced]
+    new_rows = [[row[i] if i < len(row) else "" for i in picked_idx] for row in sliced]
     return ParsedTable(columns=new_columns, rows=new_rows, source=table.source)
 
 

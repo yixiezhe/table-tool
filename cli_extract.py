@@ -35,7 +35,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         description="从表格类文件中按列/行抽取并导出（支持 .DTA / .mdat / .z/.cor / CSV / TSV / TXT 等）"
     )
     p.add_argument("files", nargs="+", help="输入文件路径（可多个）")
-    p.add_argument("-c", "--columns", help="要提取的列名（逗号/空格分隔，如: Zreal,Zimag）")
+    p.add_argument("-c", "--columns", help="要提取的列名（逗号/空格分隔，如: Zreal,Zimag；留空则导出全部列）")
     p.add_argument("--start-row", type=int, default=1, help="数据起始行（从 1 开始，不含表头）")
     p.add_argument("--end-row", type=int, default=None, help="数据结束行（包含该行）")
     p.add_argument("--max-rows", type=int, default=None, help="最多提取多少行（从 start-row 开始计）")
@@ -61,12 +61,12 @@ def main(argv: list[str]) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     columns_spec = args.columns or ""
-    if args.interactive or not columns_spec.strip():
+    if args.interactive:
         if args.notepad:
             for f in args.files:
                 subprocess.Popen(["notepad.exe", str(Path(f).resolve())])
 
-        columns_spec = _prompt_str("请输入要提取的列名（逗号/空格分隔）", columns_spec or None)
+        columns_spec = _prompt_str("请输入要提取的列名（逗号/空格分隔，留空导出全部列）", columns_spec or None)
         out_fmt = _prompt_str("请选择导出格式 csv/tsv/txt/dat", args.out_fmt)
         start_row = _prompt_int("起始数据行 start_row", args.start_row)
         max_rows = _prompt_int("最多提取行数 max_rows（空表示不限）", args.max_rows)
@@ -79,10 +79,6 @@ def main(argv: list[str]) -> int:
         args.end_row = end_row
         args.row_keyword = row_keyword.strip() or None
         args.no_header = not include_header
-
-    if not columns_spec.strip():
-        print("错误：未指定要提取的列名（--columns 或 --interactive）", file=sys.stderr)
-        return 2
 
     for f in args.files:
         in_path = Path(f)

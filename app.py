@@ -45,8 +45,6 @@ def api_extract():
         return jsonify({"error": "未上传文件（字段名：files）"}), 400
 
     columns_spec = (request.form.get("columns") or "").strip()
-    if not columns_spec:
-        return jsonify({"error": "未填写要提取的列名（columns）"}), 400
 
     out_fmt = (request.form.get("out_fmt") or "tsv").strip().lower()
     start_row = _parse_int(request.form.get("start_row")) or 1
