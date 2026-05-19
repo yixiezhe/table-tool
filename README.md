@@ -6,7 +6,7 @@
 - **网页方式（可选后端）**：本机运行 `app.py`（Flask），然后浏览器打开。
 - **脚本方式（命令行）**：用 `python` 跑 `cli_extract.py` 生成导出文件。
 
-当前对 **Gamry 的 `.DTA`** 解析最强；其它**文本表格**（CSV/TSV/TXT/DAT 等）会按分隔符自动识别。
+当前支持 **Gamry `.DTA`**、**MultiStat `.mdat`**（自动读取其中的 AC/EIS `.z` 数据集）、`.z/.cor` 以及其它**文本表格**（CSV/TSV/TXT/DAT 等）。
 
 ---
 
@@ -104,12 +104,15 @@ python .\app.py
 
 - **选择文件**：点一下选择你的文件（可多选）。
   - 多选时：会自动返回一个 `extracted.zip`，里面每个文件对应一个导出结果。
+  - 上传 `.mdat` 时，会自动解包并优先选择 AC/EIS 数据集（通常是 Step2/Main 的 `.z`）。
 - **列名关键词**：你要提取的列名，用**逗号或空格**分隔。
   - 例 1：`Zreal,Zimag`
   - 例 2：`Idc Vdc IERange Imod`
+  - 对 `.mdat`，`Zreal` / `Zimag` 会自动匹配到 `Z'(a)` / `Z''(b)`。
 - **导出格式**：
   - `dat/txt/tsv`：用 **Tab** 分隔，适合 Origin
   - `csv`：逗号分隔，适合 Excel
+- **导出包含表头**：勾选则输出第一行列名；取消则只输出数据
 - **start_row**：从第几行数据开始抽（**数据行从 1 开始数，不算表头**）
   - 对 `.DTA`：通常 `Pt=0` 那一行就是第 1 行，所以一般填 `1`
 - **max_rows**：只取前 N 行（比如你要前 70 行就填 `70`）
@@ -149,6 +152,7 @@ python .\cli_extract.py <文件路径1> <文件路径2...> -c "<列名列表>" -
 - `--max-rows`：最多抽多少行（可选）
 - `-f / --out-fmt`：导出格式（`csv|tsv|txt|dat`）
 - `-o / --out-dir`：输出目录（默认 `out`）
+- `--no-header`：导出时不包含表头（列名行）
 - `--interactive`：走交互式提问
 - `--notepad`：先用记事本打开文件（配合 `--interactive` 使用最舒服）
 
@@ -229,6 +233,8 @@ python .\app.py
 目前这个版本**主要支持**：
 
 - `.DTA`（Gamry）
+- `.mdat`（MultiStat，自动读取 AC/EIS `.z` 数据集）
+- `.z/.cor`（MultiStat 导出的单个数据文件）
 - 以及 CSV/TSV/TXT/DAT 等**文本表格**
 
 如果你确实需要 `.xlsx/.xls`，告诉我你常见的 Excel 格式样例（是否有多 sheet、表头在哪一行），我可以把 Excel 支持也加进去。

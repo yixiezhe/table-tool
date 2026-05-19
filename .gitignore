@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+
+out/
+out_test/
+
+.pytest_cache/
+.venv/
+venv/
+
+*.tmp
+*.log
+
+# Local screenshots uploaded while working in this directory.
+02815837fee89dacce24408b364a7c8e.png

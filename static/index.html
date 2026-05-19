@@ -151,7 +151,7 @@
       <header>
         <h1>表格抽取工具</h1>
         <p>
-          上传表格类文件（目前对 <code>.DTA</code> 解析更强；其它文本表格自动按分隔符识别），输入要提取的列名与行范围，
+          上传表格类文件（支持 <code>.DTA</code>、MultiStat <code>.mdat</code>、<code>.z/.cor</code> 与常见文本表格），输入要提取的列名与行范围，
           导出为 Origin/Excel 可直接打开的 <code>csv</code> / <code>txt(dat)</code>。
         </p>
       </header>
@@ -160,7 +160,7 @@
         <form id="extractForm">
           <div class="row">
             <label for="files">选择文件（可多选，多个文件会打包成 zip）</label>
-            <input id="files" name="files" type="file" multiple required />
+            <input id="files" name="files" type="file" accept=".dta,.mdat,.z,.cor,.csv,.tsv,.txt,.dat" multiple required />
           </div>
 
           <div class="row">
@@ -209,7 +209,7 @@
             </div>
             <div class="hint">
               <div>规则：若填写 <code>max_rows</code> 且未填 <code>end_row</code>，则自动计算 end_row。</div>
-              <div>对于 Gamry 的 <code>.DTA</code>，数据行通常从 <code>Pt=0</code> 开始，对应 start_row=1。</div>
+              <div><code>.mdat</code> 会自动读取其中的 AC/EIS 数据集（通常是 Step2/Main 的 <code>.z</code>）。</div>
             </div>
           </div>
 
@@ -222,7 +222,7 @@
         <div id="status" class="status" style="display: none"></div>
       </div>
 
-      <footer>纯前端：浏览器本地解析；也可用 Python 脚本（<code>cli_extract.py</code>/<code>app.py</code>）。</footer>
+      <footer>纯前端：浏览器本地解析；<code>.mdat</code> 会在浏览器内解包；也可用 Python 脚本（<code>cli_extract.py</code>/<code>app.py</code>）。</footer>
     </div>
 
     <script>
@@ -256,6 +256,31 @@
         return (name || "").trim().replace(/\s+/g, " ").toLowerCase();
       }
 
+      const COLUMN_ALIASES = new Map([
+        ["frequency", ["freq(hz)", "freq"]],
+        ["zreal", ["z'(a)", "zre"]],
+        ["z real", ["z'(a)", "zre"]],
+        ["zre", ["z'(a)", "zreal"]],
+        ["zimag", ["z''(b)", "zim"]],
+        ["z imag", ["z''(b)", "zim"]],
+        ["zim", ["z''(b)", "zimag"]],
+      ]);
+
+      function candidateColumnNames(requested) {
+        const base = normalizeCol(requested);
+        const names = [base, ...(COLUMN_ALIASES.get(base) || [])];
+        const out = [];
+        const seen = new Set();
+        for (const name of names) {
+          const norm = normalizeCol(name);
+          if (norm && !seen.has(norm)) {
+            out.push(norm);
+            seen.add(norm);
+          }
+        }
+        return out;
+      }
+
       function pickColumns(allColumns, requested) {
         const map = new Map();
         allColumns.forEach((c, i) => map.set(normalizeCol(c), i));
@@ -265,8 +290,15 @@
           const key = normalizeCol(req);
           if (!key) continue;
 
-          if (map.has(key)) {
-            picked.push(map.get(key));
+          let exact = null;
+          for (const candidate of candidateColumnNames(req)) {
+            if (map.has(candidate)) {
+              exact = map.get(candidate);
+              break;
+            }
+          }
+          if (exact != null) {
+            picked.push(exact);
             continue;
           }
 
@@ -336,6 +368,79 @@
 
         if (!rows.length) throw new Error("未解析到数据行");
         return { columns: header, rows };
+      }
+
+      function splitTabColumns(line) {
+        return String(line || "")
+          .trim()
+          .split("\t")
+          .map((s) => s.trim())
+          .filter((s) => s);
+      }
+
+      function parseMultistatDataFile(text) {
+        const lines = text.split(/\r?\n/);
+        let headerIdx = -1;
+
+        for (const marker of ["AC File Columns", "DC File Columns"]) {
+          const markerIdx = lines.findIndex((line) => line.includes(marker));
+          if (markerIdx < 0) continue;
+
+          for (let i = markerIdx + 1; i < lines.length; i++) {
+            const stripped = lines[i].trim();
+            if (stripped.startsWith("End Information:")) break;
+            const cols = splitTabColumns(lines[i]);
+            if (cols.length > 1) headerIdx = i;
+          }
+          if (headerIdx >= 0) break;
+        }
+
+        if (headerIdx < 0) {
+          for (let i = 0; i < lines.length; i++) {
+            const cols = splitTabColumns(lines[i]);
+            if (cols.length > 1 && !NUM_RE.test(cols[0])) {
+              headerIdx = i;
+              break;
+            }
+          }
+        }
+
+        if (headerIdx < 0) throw new Error("未找到 MultiStat 数据列头");
+
+        const columns = splitTabColumns(lines[headerIdx]);
+        if (!columns.length) throw new Error("MultiStat 数据列头为空");
+
+        let dataStart = headerIdx + 1;
+        for (let i = headerIdx + 1; i < lines.length; i++) {
+          if (lines[i].trim().startsWith("End Header:")) {
+            dataStart = i + 1;
+            break;
+          }
+        }
+
+        const rows = [];
+        const expected = columns.length;
+        for (let i = dataStart; i < lines.length; i++) {
+          const raw = lines[i];
+          if (!raw.trim()) {
+            if (rows.length) break;
+            continue;
+          }
+
+          const parts = splitTabColumns(raw);
+          if (parts.length < expected) {
+            if (rows.length) break;
+            continue;
+          }
+          if (!NUM_RE.test(parts[0])) {
+            if (rows.length) break;
+            continue;
+          }
+          rows.push(parts.slice(0, expected));
+        }
+
+        if (!rows.length) throw new Error("未解析到 MultiStat 数据行");
+        return { columns, rows };
       }
 
       function sniffDelimiter(text) {
@@ -415,8 +520,7 @@
         return { columns, rows: dataRows };
       }
 
-      async function readFileAsText(file) {
-        const buf = await file.arrayBuffer();
+      function decodeBytesAsText(buf) {
         const encodings = ["utf-8", "utf-8", "gb18030", "gbk"];
 
         for (const enc of encodings) {
@@ -430,9 +534,135 @@
         return new TextDecoder("utf-8", { fatal: false }).decode(buf);
       }
 
-      function parseFileToTable(filename, text) {
-        const lower = (filename || "").toLowerCase();
+      async function readFileAsText(file) {
+        const buf = await file.arrayBuffer();
+        return decodeBytesAsText(buf);
+      }
+
+      function findZipEnd(bytes) {
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const min = Math.max(0, bytes.length - 65557);
+        for (let i = bytes.length - 22; i >= min; i--) {
+          if (dv.getUint32(i, true) === 0x06054b50) return i;
+        }
+        throw new Error(".mdat 文件不是有效的 zip 容器");
+      }
+
+      async function inflateRaw(bytes) {
+        if (typeof DecompressionStream === "undefined") {
+          throw new Error("当前浏览器不支持解压 .mdat；请使用新版 Chrome/Edge");
+        }
+        let stream;
+        try {
+          stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+        } catch (_e) {
+          throw new Error("当前浏览器不支持 zip deflate-raw 解压；请使用新版 Chrome/Edge");
+        }
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+
+      async function readZipEntries(bytes) {
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const end = findZipEnd(bytes);
+        const count = dv.getUint16(end + 10, true);
+        let ptr = dv.getUint32(end + 16, true);
+        const entries = [];
+        const nameDecoder = new TextDecoder("utf-8", { fatal: false });
+
+        for (let n = 0; n < count; n++) {
+          if (dv.getUint32(ptr, true) !== 0x02014b50) throw new Error(".mdat zip 中央目录损坏");
+
+          const flags = dv.getUint16(ptr + 8, true);
+          const method = dv.getUint16(ptr + 10, true);
+          const compressedSize = dv.getUint32(ptr + 20, true);
+          const nameLen = dv.getUint16(ptr + 28, true);
+          const extraLen = dv.getUint16(ptr + 30, true);
+          const commentLen = dv.getUint16(ptr + 32, true);
+          const localOffset = dv.getUint32(ptr + 42, true);
+          const nameBytes = bytes.slice(ptr + 46, ptr + 46 + nameLen);
+          const name = nameDecoder.decode(nameBytes);
+          ptr += 46 + nameLen + extraLen + commentLen;
+
+          if (name.endsWith("/")) continue;
+          if (dv.getUint32(localOffset, true) !== 0x04034b50) throw new Error(`.mdat zip 本地文件头损坏：${name}`);
+
+          const localNameLen = dv.getUint16(localOffset + 26, true);
+          const localExtraLen = dv.getUint16(localOffset + 28, true);
+          const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+          const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+
+          let data;
+          if (method === 0) {
+            data = compressed;
+          } else if (method === 8) {
+            data = await inflateRaw(compressed);
+          } else {
+            throw new Error(`.mdat 内文件 ${name} 使用了暂不支持的压缩方式：${method}`);
+          }
+          entries.push({ name, data, flags });
+        }
+        return entries;
+      }
+
+      function scoreMdatEntry(name, text) {
+        const lower = String(name || "").toLowerCase();
+        let score = 0;
+        if (lower.endsWith(".z")) score += 1000;
+        if (text.includes("MultiStat_ACData")) score += 500;
+        if (text.includes("AC File Columns")) score += 300;
+        if (/Exp Name:\s+Impedance\b/.test(text)) score += 100;
+        if (/Z\d+\s+Name:\s+Main\b/.test(text)) score += 20;
+        if (text.includes("Step2")) score += 5;
+        if (lower.endsWith(".cor")) score += 1;
+        return score;
+      }
+
+      async function parseMdatToTable(filename, bytes) {
+        const entries = await readZipEntries(bytes);
+        const candidates = [];
+        const errors = [];
+
+        for (let order = 0; order < entries.length; order++) {
+          const entry = entries[order];
+          const lower = entry.name.toLowerCase();
+          if (!/\.(z|cor|txt|dat)$/.test(lower)) continue;
+
+          const text = decodeBytesAsText(entry.data);
+          if (!text.includes("File Columns") || !text.includes("End Header:")) continue;
+
+          try {
+            const table = parseMultistatDataFile(text);
+            candidates.push({
+              score: scoreMdatEntry(entry.name, text),
+              order,
+              name: entry.name,
+              table,
+            });
+          } catch (err) {
+            errors.push(`${entry.name}: ${err && err.message ? err.message : err}`);
+          }
+        }
+
+        if (!candidates.length) {
+          const extra = errors.length ? `；尝试过的区段：${errors.join("; ")}` : "";
+          throw new Error(`未在 ${filename} 中找到可解析的 AC/EIS 数据集（通常是 .z 文件）${extra}`);
+        }
+
+        candidates.sort((a, b) => b.score - a.score || a.order - b.order);
+        const picked = candidates[0];
+        return { ...picked.table, source: `mdat:${picked.name}` };
+      }
+
+      async function parseFileToTable(file) {
+        const lower = (file.name || "").toLowerCase();
+        if (lower.endsWith(".mdat")) {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          return parseMdatToTable(file.name, bytes);
+        }
+
+        const text = await readFileAsText(file);
         if (lower.endsWith(".dta")) return parseDtaFirstTable(text);
+        if (lower.endsWith(".z") || lower.endsWith(".cor")) return parseMultistatDataFile(text);
         const delimiter = sniffDelimiter(text);
         return parseDelimited(text, delimiter);
       }
@@ -650,8 +880,7 @@
 
           const outputs = [];
           for (const file of files) {
-            const text = await readFileAsText(file);
-            const table = parseFileToTable(file.name, text);
+            const table = await parseFileToTable(file);
             const extracted = extractTable(table, columnsSpec, startRow, endRow, maxRows, rowKeyword);
             const outText = tableToText(extracted, outFmt, includeHeader);
             const outBytes = textEncoder.encode(outText);
